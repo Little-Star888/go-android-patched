@@ -1,0 +1,48 @@
+name: publish-dist
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'build run id (artifact source)'
+        required: true
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download build artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p work && cd work
+          curl -sL --retry 5 -H "Authorization: Bearer $GH_TOKEN" -o artifact.zip \
+            "$GITHUB_API_URL/repos/${GITHUB_REPOSITORY}/actions/runs/${{ inputs.run_id }}/artifacts"
+          unzip -o artifact.zip
+          ls -la
+      - name: Split into CDN-sized chunks
+        run: |
+          cd work
+          T=$(ls *.tar.gz | head -1)
+          sha256sum "$T" > SHA256SUMS
+          split -b 19000000 -d -a 2 "$T" "parts/go.tar.gz.part-"
+          cp SHA256SUMS parts/ 2>/dev/null || true
+          sha256sum "$T" | cut -c1-64 > parts/BUILD_SHA256
+          cp "$T" parts/expected-size.txt 2>/dev/null || true
+          stat -c %s "$T" > parts/BUILD_SIZE
+          ls -la parts/
+      - name: Push chunks to dist branch
+        run: |
+          cd work/parts
+          git init -q .
+          git config user.email "ci@local" && git config user.name "ci"
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch -q origin dist || true
+          git checkout -q -B dist origin/dist 2>/dev/null || git checkout -q -B dist
+          cp -f ../*.part-* . 2>/dev/null || true
+          cp -f ../SHA256SUMS . 2>/dev/null || true
+          git add -A
+          git commit -q -m "dist: chunks for run ${{ inputs.run_id }}" || true
+          git push -q -f origin dist
+          echo "pushed to dist branch"
