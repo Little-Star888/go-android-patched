@@ -17,8 +17,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p work && cd work
-          curl -sL --retry 5 -H "Authorization: Bearer $GH_TOKEN" -o artifact.zip \
+          curl -sL --retry 5 -H "Authorization: Bearer $GH_TOKEN" -o artifacts.json \
             "$GITHUB_API_URL/repos/${GITHUB_REPOSITORY}/actions/runs/${{ inputs.run_id }}/artifacts"
+          AID=$(jq -r '.artifacts[0].id' artifacts.json)
+          echo "artifact id=$AID"
+          curl -sL --retry 5 -H "Authorization: Bearer $GH_TOKEN" -o artifact.zip \
+            "$GITHUB_API_URL/repos/${GITHUB_REPOSITORY}/actions/artifacts/$AID/zip"
           unzip -o artifact.zip
           ls -la
       - name: Split into CDN-sized chunks
